@@ -1,0 +1,545 @@
+---
+title: "Toeplitz Matrices & Yule–Walker Estimation"
+author: "Ignacio Vélez Ocampo"
+date: today
+format: html
+jupyter: python3
+execute:
+  dir: project
+  echo: true
+  warning: false
+  message: false
+---
+
+## 1. Project Objective
+
+This notebook represents the **first stage** of the *Time Series and Stochastic Simulation* project. It demonstrates two analytical techniques commonly used in time series modeling:
+
+-   The manual and optimized construction of a **Toeplitz matrix**
+-   The estimation of **autoregressive (AR)** parameters via the **Yule–Walker equations**
+
+The workflow emphasizes **reproducibility**, **numerical validation**, and **performance benchmarking** using standard Python scientific libraries.
+
+------------------------------------------------------------------------
+
+## 2. Environment Setup
+
+We import all necessary libraries for numerical operations, matrix generation, and model estimation.
+
+```{python}
+# 2. Environment Setup ---------------------------------------------------------
+"""
+Import core libraries for numerical computation, Toeplitz construction,
+and AR parameter estimation.
+"""
+
+import numpy as np
+from scipy.linalg import toeplitz
+from statsmodels.tsa.ar_model import AutoReg
+import timeit, contextlib, io
+from pathlib import Path
+```
+
+------------------------------------------------------------------------
+
+## 3. Define Project Paths
+
+We define **relative paths** dynamically, ensuring reproducibility across Windows, macOS, and Linux.
+
+```{python}
+# 3. Define Project Paths ------------------------------------------------------
+"""
+Automatically detect the project root and define relative paths for
+data input and output. This ensures cross-platform reproducibility.
+"""
+
+from pathlib import Path
+
+# Dynamically locate project root (cross-platform)
+project_root = Path.cwd().resolve()
+for _ in range(3):
+    if (project_root / "data").exists():
+        break
+    project_root = project_root.parent
+
+# Define relative data path
+data_path = project_root / "data" / "vector.csv"
+
+print(f"Project root: {project_root}")
+print(f"Data path: {data_path}")
+
+```
+
+This guarantees that the notebook will locate the `data/` folder regardless of the execution directory.
+
+------------------------------------------------------------------------
+
+## 4. Toeplitz Matrix Construction, Validation & Benchmarking
+
+This section builds and analyzes **Toeplitz matrices** — key linear algebra structures in time series modeling.
+
+We implement both **manual** and **optimized (SciPy)** approaches, validate their consistency, and benchmark performance before applying these concepts to **autoregressive (AR)** estimation with the **Yule–Walker equations**.
+
+------------------------------------------------------------------------
+
+### 4.1 Manual Implementation
+
+We first build a **Toeplitz matrix** manually to visualize its internal structure and logic.
+
+Each descending diagonal of the matrix holds identical values, allowing efficient representation of autocovariances in AR models. This step focuses on clarity and correctness, creating a transparent reference point before moving to the automated SciPy version.
+
+```{python}
+# 4.1 Manual Implementation ----------------------------------------------------
+"""
+Manual construction of a Toeplitz matrix using nested loops and vectorized
+index operations. Provides transparency into the mathematical structure.
+"""
+
+import numpy as np
+
+def toeplitz_manual(dim, seq):
+    # Validate input dimension
+    if not isinstance(dim, int) or dim <= 0:
+        raise ValueError("dim must be a positive integer")
+
+    # Convert sequence to numeric NumPy array
+    seq = np.asarray(seq, dtype=float)
+
+    # Validate sequence length
+    if seq.size < 2 * dim - 1:
+        raise ValueError(f"Sequence too short for dim={dim}. Need {2 * dim - 1} elements.")
+
+    # Vectorized Toeplitz matrix construction
+    idx = np.arange(dim)
+    T = seq[np.subtract.outer(idx, idx) + (dim - 1)]
+
+    return T
+
+# Example ----------------------------------------------------------------------
+toeplitz_manual(4, np.arange(1, 8))
+
+```
+
+This transparent approach serves as a baseline for validating the optimized SciPy implementation introduced next.
+
+------------------------------------------------------------------------
+
+### 4.2 Optimized (SciPy)
+
+This section introduces an optimized alternative for building Toeplitz matrices using the `scipy.linalg.toeplitz()` function.
+
+While the manual version provides transparency into the underlying logic, SciPy’s implementation leverages efficient low-level routines in C, offering significant performance advantages and serving as a benchmark for validation.
+
+```{python}
+# 4.2 Optimized (SciPy) -----------------------------------------------------
+"""
+Automatic Toeplitz matrix construction using the optimized SciPy function.
+Serves as a benchmark for correctness and computational efficiency compared
+to the manual implementation.
+"""
+
+from scipy.linalg import toeplitz
+
+def toeplitz_scipy(c, r=None):
+    """
+    Build a Toeplitz matrix using SciPy's built-in implementation.
+
+    Parameters
+    ----------
+    c : array-like
+        First column of the Toeplitz matrix.
+    r : array-like, optional
+        First row of the Toeplitz matrix. If not provided, defaults to `c`.
+
+    Returns
+    -------
+    numpy.ndarray
+        Generated Toeplitz matrix.
+    """
+    # Convert to numeric arrays
+    c = np.asarray(c, dtype=float)
+    r = np.asarray(r if r is not None else c, dtype=float)
+
+    # Input validation
+    if c.size == 0 or r.size == 0:
+        raise ValueError("Both 'c' and 'r' must contain at least one element.")
+
+    # Construct Toeplitz matrix using SciPy
+    T = toeplitz(c, r)
+
+    return T
+
+# Example ----------------------------------------------------------------------
+toeplitz_scipy(np.arange(4, 8), np.arange(4, 0, -1))
+```
+
+------------------------------------------------------------------------
+
+### 4.3 Comparison of Outcomes
+
+After defining both the **manual** and **SciPy-based** Toeplitz implementations, we now validate that they produce **identical numerical results** for equivalent inputs.
+
+This step confirms the correctness of the custom algorithm and illustrates how vectorized logic can replicate library-grade accuracy.
+
+```{python}
+# 4.3 Comparison of Outcomes ----------------------------------------------------
+"""
+Compare outputs between the manual and SciPy Toeplitz implementations to verify
+numerical equivalence and consistency.
+"""
+
+# Define test parameters
+dim = 4
+seq = np.arange(1, 8)
+
+# Manual Toeplitz construction
+T_manual = toeplitz_manual(dim, seq)
+
+# SciPy Toeplitz construction
+T_scipy = toeplitz_scipy(np.arange(4, 8), np.arange(4, 0, -1))
+
+# Verify equivalence
+are_equal = np.allclose(T_manual, T_scipy)
+
+print("Manual Toeplitz Matrix:\n", T_manual, "\n")
+print("SciPy Toeplitz Matrix:\n", T_scipy, "\n")
+print(f"Matrices identical: {are_equal}")
+```
+
+> **Expected Output**:
+>
+> Both matrices should match perfectly, confirming that the manual implementation follows the same mathematical structure as the optimized SciPy version.
+
+------------------------------------------------------------------------
+
+### 4.4 Validation
+
+To improve **robustness and reproducibility**, the manual Toeplitz function is rewritten into a **cleaner, more defensive version** with clear input checks and controlled feedback.
+
+It introduces three main safeguards:
+
+1.  **Type validation** – verifies that the matrix size is a positive integer and the sequence is numeric.
+2.  **Length check** – ensures the sequence has at least \( 2n - 1 \) values for an \( n \times n \) matrix.
+3.  **Verbose mode** – lets the user print or suppress matrix output for easier debugging.
+
+These controls prevent common errors such as non-numeric inputs, wrong matrix dimensions, or too-short sequences. Instead of failing silently, the function raises clear, informative messages to keep execution predictable and reproducible.
+
+The following examples show both valid and invalid cases to confirm that validation behaves as intended.
+
+```{python}
+# 4.4 Validation -----------------------------------------
+"""
+Refined version of the manual Toeplitz matrix constructor with explicit
+validation, type checks, and optional verbosity for reproducible execution.
+"""
+
+def toeplitz_manual_validated(dim_mat, t_seq, verbose=True):
+    # --- Input Validation -----------------------------------------------------
+    if not isinstance(dim_mat, int) or dim_mat <= 0:
+        raise ValueError("dim_mat must be a positive integer.")
+
+    try:
+        seq = np.asarray(t_seq, dtype=float)
+    except Exception as e:
+        raise TypeError(f"t_seq must be a numeric iterable: {e}")
+
+    required_len = 2 * dim_mat - 1
+    if seq.size < required_len:
+        raise ValueError(f"Sequence too short: need ≥ {required_len}, got {seq.size}.")
+
+    # --- Toeplitz Matrix Construction ----------------------------------------
+    idx = np.arange(dim_mat)
+    T = seq[np.subtract.outer(idx, idx) + (dim_mat - 1)]
+
+    # --- Optional Output ------------------------------------------------------
+    if verbose:
+        print(f"Toeplitz matrix ({dim_mat}×{dim_mat}):\n{T}")
+
+    return T
+
+# Example: Valid input
+toeplitz_manual_validated(4, np.arange(1, 8))
+```
+
+We test the validation mechanism under various incorrect inputs to ensure that the function raises **clear, informative error messages**.
+
+```{python}
+# Error Handling Demonstration -------------------------------------------------
+"""
+Trigger controlled errors to confirm that input validation and exception
+handling behave as expected under invalid configurations.
+"""
+
+# Invalid dimension (non-integer)
+try:
+    toeplitz_manual_validated(3.5, np.arange(1, 8))
+except Exception as e:
+    print("Error:", e)
+
+# Invalid sequence (text elements)
+try:
+    toeplitz_manual_validated(4, ["a", "b", "c"])
+except Exception as e:
+    print("Error:", e)
+
+# Sequence too short
+try:
+    toeplitz_manual_validated(5, np.arange(1, 8))
+except Exception as e:
+    print("Error:", e)
+```
+
+> **Expected Output**:
+>
+> Each invalid test triggers a descriptive exception message, while the valid call returns the correctly structured Toeplitz matrix, confirming that the validation logic functions as intended. --\>
+
+------------------------------------------------------------------------
+
+### 4.5 Performance Comparison
+
+Measuring computational efficiency helps demonstrate not only correctness but also scalability — a key aspect when working with large datasets or production environments.
+
+After validating correctness, we compare the **manual implementation** with SciPy’s **optimized Toeplitz routine**. This test measures how much faster a compiled library version performs while producing the same results.
+
+We use `timeit` for consistent timing, silence printed output to avoid bias, and repeat each test 100 times on a 500×500 matrix. The comparison highlights the gain from using optimized C routines versus pure Python — a common trade-off between clarity and speed in scientific code.
+
+```{python}
+# 4.5 Performance Comparison ----------------------------------------------------
+"""
+Benchmark the execution time of the manual validated Toeplitz implementation
+against SciPy’s optimized version using timeit. Print suppression ensures
+fair and reproducible timing.
+"""
+
+import io
+import contextlib
+import timeit
+
+# Helper function: silence standard output
+def silent_call(func, *args, **kwargs):
+    """Execute a function while suppressing print statements."""
+    with contextlib.redirect_stdout(io.StringIO()):
+        return func(*args, **kwargs)
+
+# Parameters for benchmarking
+t_seq = np.arange(1, 1001)
+dim = 500
+n_reps = 100
+
+# Measure manual function performance
+manual_time = timeit.timeit(
+    stmt="silent_call(toeplitz_manual_validated, dim, t_seq, False)",
+    setup="from __main__ import silent_call, toeplitz_manual_validated, dim, t_seq",
+    number=n_reps,
+)
+
+# Measure SciPy function performance
+scipy_time = timeit.timeit(
+    stmt="toeplitz_scipy(t_seq[:dim])",
+    setup="from __main__ import toeplitz_scipy, t_seq, dim",
+    number=n_reps,
+)
+
+# Summarize results
+print(f"Manual implementation: {manual_time:.4f}s total ({manual_time/n_reps:.6f}s/run)")
+print(f"SciPy implementation:  {scipy_time:.4f}s total ({scipy_time/n_reps:.6f}s/run)")
+print(f"Relative speed: Manual / SciPy = {manual_time/scipy_time:.2f}× slower")
+```
+
+> **Expected Output**:
+>
+> The SciPy implementation should outperform the manual version by several orders of magnitude due to its underlying vectorized operations in C. This confirms that while the manual approach is instructive, optimized libraries are essential for scalable numerical computation.
+
+------------------------------------------------------------------------
+
+### 4.6 Bridging Concept – From Toeplitz to Yule–Walker
+
+With the Toeplitz structure and performance established, we now link it to its **statistical role** in time series modeling.
+
+The **Yule–Walker equations** use a Toeplitz matrix built from autocovariances ( \gamma(k) ) to estimate the coefficients of an AR(p) model. This bridge connects **linear algebra** with **stochastic modeling**, forming the foundation for parameter estimation in the next section.
+
+------------------------------------------------------------------------
+
+## 5. Yule–Walker Estimation & Validation
+
+The **Yule–Walker method** estimates AR(p) parameters by exploiting the covariance structure of a stationary process. It formulates the linear relationship \( R \varphi = r \), where \( R \) is a Toeplitz covariance matrix and \( \varphi \) the vector of AR coefficients.
+
+This formulation provides a direct and computationally efficient way to estimate autoregressive parameters from empirical data.
+
+------------------------------------------------------------------------
+
+### 5.1 Implementation
+
+The procedure leverages the **Toeplitz matrix** of autocovariances to solve the linear system ( R \varphi = r ), connecting theoretical correlations to the autoregressive coefficients.
+
+```{python}
+# 5.1 Implementation ----------------------------------------------------
+"""
+Estimate AR(p) parameters using the Yule–Walker equations.
+Relates the autocovariance structure of a time series to its AR coefficients.
+"""
+
+def yule_walker(y, p):
+    """
+    Estimate AR(p) parameters and innovation standard deviation using Yule–Walker.
+
+    Parameters
+    ----------
+    y : array-like
+        Time series observations.
+    p : int
+        Order of the autoregressive model.
+
+    Returns
+    -------
+    phi : numpy.ndarray
+        Estimated AR(p) coefficients.
+    sigma : float
+        Estimated innovation standard deviation.
+    """
+   
+    # Convert and center the input series
+    y = np.asarray(y, dtype=float)
+    y = y - np.mean(y)
+    T = len(y)
+    if T <= p:
+        raise ValueError("Time series must contain more observations than model order p.")
+
+    # Compute biased autocovariances γ(k) = (1/T) Σ_t y_t * y_{t−k}
+    acf_full = np.correlate(y, y, mode="full") / T
+    mid = len(acf_full) // 2
+    gamma = acf_full[mid:mid + p + 1]  # [γ(0), γ(1), …, γ(p)]
+
+    # Build Toeplitz matrix R and vector r
+    R = toeplitz(gamma[:p])
+    r = gamma[1:p + 1]
+
+    # Solve Yule–Walker equations Rφ = r
+    phi = np.linalg.solve(R, r)
+
+    # Compute innovation variance and standard deviation
+    sigma2 = gamma[0] - np.dot(phi, r)
+    sigma2 = max(sigma2, 0.0)  # numerical stability
+    sigma = np.sqrt(sigma2)
+
+    return phi, sigma
+
+# Example ----------------------------------------------------------------------
+np.random.seed(0)
+y_sample = np.random.randn(500)
+phi_est, sigma_est = yule_walker(y_sample, p=2)
+
+print("Yule–Walker estimation (AR(2))")
+print(f"phi:   {phi_est}")
+print(f"sigma: {sigma_est:.6f}")
+
+```
+
+> **Expected Output:**
+>
+> The function returns AR(2) coefficients close to zero for a white-noise series and an innovation standard deviation close to 1.
+>
+> This confirms that the Yule–Walker system is solved correctly and stably.
+
+------------------------------------------------------------------------
+
+### 5.2 Empirical Validation
+
+Here we apply the **Yule–Walker estimator** to real data in `vector.csv` and compare it with an **OLS-based AR(2)** model from `statsmodels.AutoReg`.
+
+This confirms that theoretical and numerical estimators yield consistent results when assumptions are properly aligned.
+
+To ensure comparability:
+
+-   The series is **centered** (zero mean).
+
+-   The OLS model excludes a constant (`trend='n'`).
+
+```{python}
+# 5.2 Empirical Validation --------------------------------------
+"""
+Load empirical AR(2) data, estimate parameters using the Yule–Walker method,
+and compare results with statsmodels’ OLS-based AutoReg estimation.
+"""
+
+import numpy as np
+from pathlib import Path
+from statsmodels.tsa.ar_model import AutoReg
+
+# Locate project root and data path dynamically
+project_root = Path.cwd().resolve()
+for _ in range(3):
+    if (project_root / "data").exists():
+        break
+    project_root = project_root.parent
+
+data_path = project_root / "data" / "vector.csv"
+
+# Load the empirical time series
+y = np.loadtxt(data_path, delimiter=",", ndmin=1)
+
+# --- Yule–Walker Estimation ---------------------------------------------------
+p = 2
+phi_yw, sigma_yw = yule_walker(y, p=p)
+
+print("Yule–Walker estimation (AR(2))")
+print(f"phi:   {phi_yw}")
+print(f"sigma: {sigma_yw:.6f}")
+
+# --- OLS Estimation via statsmodels ------------------------------------------
+# Center series to match Yule–Walker assumptions
+y_centered = y - np.mean(y)
+
+# Fit AR(2) model without constant (trend='n')
+model = AutoReg(y_centered, lags=p, trend="n", old_names=False)
+res = model.fit()
+
+# Extract parameters
+phi_ols = res.params
+sigma_ols = np.sqrt(res.sigma2)
+
+# --- Comparison ---------------------------------------------------------------
+print("\nAutoReg OLS estimation (AR(2), no constant)")
+print(f"phi:   {phi_ols}")
+print(f"sigma: {sigma_ols:.6f}")
+
+# Differences between both estimators
+print("\nDifferences (Yule–Walker − OLS)")
+print(f"Δphi:   {phi_yw - phi_ols}")
+print(f"Δsigma: {sigma_yw - sigma_ols:.6f}")
+print(f"\nData source: {data_path}")
+```
+
+> **Expected Output**
+>
+> Both methods give similar results (φ₁≈0.72, φ₂≈−0.37, σ≈1.05).
+>
+> Residuals should fluctuate around zero with no clear trend, and the ACF should show no significant lags.
+>
+> This validation confirms that theoretical and empirical estimators align both numerically and visually, reinforcing the correctness and reproducibility of the entire workflow.
+
+Finally, we **analyze residuals** to check model adequacy. Plots of residuals and their autocorrelation confirm whether the AR(2) fit captures the main structure without leftover patterns.
+
+```{python}
+import matplotlib.pyplot as plt
+plt.plot(res.resid)
+plt.title("Residuals (AR(2) Model)")
+plt.show()
+```
+
+------------------------------------------------------------------------
+
+## 6. Summary
+
+This notebook presents a **reproducible workflow** for building **Toeplitz matrices** and estimating **AR(p)** parameters through the **Yule–Walker equations**.
+
+Main steps:
+
+1. Manual and validated matrix construction with error control.  
+2. Performance benchmark vs SciPy’s optimized routine.  
+3. Parameter estimation using Yule–Walker.  
+4. Empirical validation and residual diagnostics.
+
+Beyond its academic scope, this notebook illustrates the ability to build and validate end-to-end analytical pipelines — combining mathematical reasoning, statistical modeling, and reproducible Python programming to produce results that are both interpretable and scalable.
+
+------------------------------------------------------------------------
